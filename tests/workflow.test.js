@@ -1,0 +1,8 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import vm from 'node:vm';
+import {readFileSync} from 'node:fs';
+function app(saved){const nodes=new Map();const context=vm.createContext({document:{querySelector(s){if(!nodes.has(s))nodes.set(s,{innerHTML:'',textContent:'',classList:{add(){},remove(){}}});return nodes.get(s)},querySelectorAll(){return []}},localStorage:{getItem(){return saved||null},setItem(){}},setTimeout(){},console});vm.runInContext(readFileSync(new URL('../app.js',import.meta.url),'utf8'),context);return code=>vm.runInContext(code,context)}
+test('계획부터 자료 선정, 개요, 초안까지 학생 입력을 보존한다',()=>{const run=app();assert.equal(run('nextAllowed()'),false);run("state.topic='학교 플라스틱 줄이기'");assert.equal(run('nextAllowed()'),true);run("state.step=1");assert.equal(run('nextAllowed()'),false);run('state.selected=resources().slice(0,2).map(r=>r.id);state.step=2');assert.equal(run('nextAllowed()'),false);run("for(const r of picked())state.notes[r.id]={content:'직접 조사한 내용 '+r.kind,source:'우리 반 조사',place:'body'}");assert.equal(run('nextAllowed()'),true);run("state.step=3;state.outline={intro:'우리 학교를 살펴보자.',body:'다회용 물병을 사용하자.',end:'오늘부터 실천하자.'}");assert.equal(run('nextAllowed()'),true);run('generate()');assert.match(run('state.draft'),/우리 학교를 살펴보자/);assert.match(run('state.draft'),/직접 조사한 내용 글 자료/);assert.match(run('finish()'),/직접 조사한 내용 그림·도식/);assert.match(run('finish()'),/우리 반 조사/)});
+test('사용자 입력을 HTML로 실행하지 않는다',()=>{const run=app();run("state.topic='<img src=x onerror=alert(1)>'");assert.ok(!run('plan()').includes('<img src=x'));assert.ok(run('plan()').includes('&lt;img'))});
+test('손상된 저장 데이터에도 첫 화면이 열린다',()=>{const run=app('{invalid');assert.match(run('plan()'),/어떤 이야기를/)});
