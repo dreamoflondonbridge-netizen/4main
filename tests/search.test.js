@@ -1,0 +1,11 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {parseResults,validateInput,searchResources,safeUrl} from '../lib/search.mjs';
+import handler from '../api/resources.js';
+const source={title:'공공기관 자료',url:'https://example.go.kr/report/1',summary:'실제 자료를 쉬운 말로 정리',publisher:'공공기관',kind:'비교표',reason:'근거를 비교할 수 있어요',date:null};
+function result(items=[source]){return {output:[{type:'web_search_call',action:{sources:[{url:source.url}]}},{type:'message',content:[{type:'output_text',text:JSON.stringify({resources:items})}]}]}}
+test('검색 출처에 없는 링크와 중복 자료는 제외한다',()=>{const parsed=parseResults(result([source,{...source,url:'https://invented.example/data'},source]));assert.equal(parsed.length,1);assert.equal(parsed[0].date,null);assert.equal(parsed[0].reason,source.reason)});
+test('위험한 링크와 잘못된 검색 결과를 거부한다',()=>{assert.equal(safeUrl('javascript:alert(1)'),null);assert.equal(safeUrl('https://user:password@example.org'),null);assert.throws(()=>parseResults({output:[]}));assert.throws(()=>validateInput({topic:'a'}))});
+test('서버에서 검색 도구를 호출하고 키는 요청 헤더에만 넣는다',async()=>{let call;const sources=await searchResources({topic:'환경 보호',purpose:'설득하기',type:'주장하는 글'},{key:'test-only',fetcher:async(url,options)=>{call={url,options};return {ok:true,json:async()=>result()}}});assert.equal(sources.length,1);const body=JSON.parse(call.options.body);assert.equal(body.tools[0].type,'web_search_preview');assert.equal(body.store,false);assert.equal(call.options.headers.Authorization,'Bearer test-only');assert.ok(!call.options.body.includes('test-only'))});
+test('API 인증 실패와 이용 한도 오류를 구분한다',async()=>{await assert.rejects(()=>searchResources({}, {key:'test',fetcher:async()=>({ok:false,status:401})}),/AUTH/);await assert.rejects(()=>searchResources({}, {key:'test',fetcher:async()=>({ok:false,status:429})}),/QUOTA/)});
+test('키가 없으면 예시를 실제 검색으로 가장하지 않고 준비 중 오류를 반환한다',async()=>{const previous=process.env.WRITING_AI_KEY;delete process.env.WRITING_AI_KEY;const res={setHeader(){},end(body){this.body=body}};try{await handler({method:'POST',headers:{},body:{topic:'환경 보호',purpose:'설득하기',type:'주장하는 글'}},res);assert.equal(res.statusCode,503);assert.match(JSON.parse(res.body).error,/준비 중/)}finally{if(previous!==undefined)process.env.WRITING_AI_KEY=previous}});
